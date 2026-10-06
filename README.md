@@ -23,13 +23,21 @@ Empty Latent Image ──┐                     Random Resolution Latent ──
 
 ## 安装
 
-已经放进你的整合包了：`E:\AI\ComfyUI-aki-v3\ComfyUI\custom_nodes\ComfyUI-RandomResolutionLatent`
+**方式一 · git clone**
 
-拷贝到其它机器：把整个 `ComfyUI-RandomResolutionLatent` 文件夹丢进 `ComfyUI/custom_nodes/` 即可，
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/yuukisnow1208/ComfyUI-RandomResolutionLatent.git
+```
+
+**方式二 · 手动**
+
+下载仓库压缩包解压，把整个 `ComfyUI-RandomResolutionLatent` 文件夹放进 `ComfyUI/custom_nodes/`。
+
 **无第三方依赖**，不需要额外 pip 安装。
 
-安装后需要**重启 ComfyUI**（绘世启动器点「重启」/ 刷新浏览器缓存），
-在节点搜索里搜 `分辨率` 或 `resolution`。
+安装后需要**重启 ComfyUI**（刷新浏览器缓存），
+在节点搜索里搜 `随机分辨率` / `resolution` / `latent` 就能找到 **🎲 随机分辨率空白 Latent**。
 
 ## 30 秒上手
 
@@ -189,6 +197,12 @@ ComfyUI-RandomResolutionLatent/
 ├── __init__.py           # 节点注册
 ├── nodes.py              # 节点定义（含 IS_CHANGED 缓存穿透）
 ├── resolution_pool.py    # 纯逻辑：预设桶 / 解析 / 尺寸换算 / 调度状态机
-├── pyproject.toml        # Manager 元数据
-└── README.md
+├── pyproject.toml        # ComfyUI Manager / Registry 元数据
+├── README.md
+├── LICENSE               # MIT
+└── .gitignore
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 yuukisnow1208
