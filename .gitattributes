@@ -1,0 +1,2 @@
+# 统一换行符，避免跨平台协作时出现 CRLF / LF 混用
+* text=auto eol=lf
