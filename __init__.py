@@ -7,10 +7,15 @@
 一个个改 Empty Latent Image 的宽高 / 反复重排队列。
 
 节点类名仍为 ResolutionScheduler（保持工作流兼容），仅显示名做了更名。
+
+WEB_DIRECTORY 只在这里声明（pyproject 里再写会按模块名和 project.name
+各注册一次，JS 被导入两遍）。
 """
 
 from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
-__version__ = "1.0.0"
+WEB_DIRECTORY = "./web"
 
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+__version__ = "1.1.0"
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

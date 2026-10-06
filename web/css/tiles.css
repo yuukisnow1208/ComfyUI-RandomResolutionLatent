@@ -1,0 +1,145 @@
+/* ComfyUI-RandomResolutionLatent · 自定义分辨率格子编辑器 */
+
+.rrl-wrap {
+  /* 外层高度由 ComfyUI 的 DOM widget 容器控制，这里不设 */
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.rrl-inner {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 8px 2px;
+  color: var(--fg-color, #d4d4d4);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---- 头部 ---- */
+.rrl-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rrl-title {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.rrl-count {
+  opacity: 0.6;
+}
+
+.rrl-clear {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border-color, #3a3a3a);
+  color: var(--fg-color, #bbb);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.rrl-clear:hover {
+  border-color: #e06c60;
+  color: #ff7b6b;
+}
+
+/* ---- 格子区 ---- */
+.rrl-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+  min-height: 26px;
+}
+
+.rrl-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--comfy-input-bg, #2b2b2b);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 13px;
+  padding: 2px 4px 2px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.rrl-tile button {
+  all: unset;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 50%;
+  color: var(--fg-color, #aaa);
+  font-size: 13px;
+}
+
+.rrl-tile button:hover {
+  background: #e05548;
+  color: #fff;
+}
+
+.rrl-empty {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 2px 0;
+}
+
+/* ---- 添加行 ---- */
+.rrl-addrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rrl-in {
+  box-sizing: border-box;
+  width: 110px;
+  background: var(--comfy-input-bg, #222);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 7px;
+  color: var(--fg-color, #eee);
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.rrl-in:focus {
+  outline: none;
+  border-color: var(--input-border-focus, #6f9bff);
+}
+
+.rrl-sep {
+  opacity: 0.6;
+}
+
+.rrl-add {
+  background: var(--comfy-input-bg, #2b2b2b);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 7px;
+  color: var(--fg-color, #ddd);
+  padding: 3px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rrl-add:hover {
+  border-color: #6f9bff;
+  color: #fff;
+}
+
+/* ---- 提示行 ---- */
+.rrl-hint {
+  font-size: 11px;
+  opacity: 0.5;
+}

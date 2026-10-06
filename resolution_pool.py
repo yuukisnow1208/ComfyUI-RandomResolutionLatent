@@ -90,7 +90,6 @@ PRESET_GROUPS: Dict[str, List[Tuple[int, int]]] = {
 DEFAULT_ASPECTS = "1:1, 3:2, 2:3, 4:3, 3:4, 16:9, 9:16, 21:9, 9:21"
 
 DEFAULT_CUSTOM = """\
-# 每行一个，支持 1024x1024 / 1024*1024 / 1024,1024 / 16:9 混写
 1024x1024
 1152x896
 896x1152

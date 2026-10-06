@@ -54,7 +54,8 @@ _POOL_INPUTS: Dict[str, Any] = {
         "default": DEFAULT_CUSTOM,
         "multiline": True,
         "dynamicPrompts": False,
-        "tooltip": "自定义列表，一行一个。支持 1024x1024 / 1024*1024 / 1024,1024 / 16:9（按目标像素换算），# 后面是注释",
+        "tooltip": "自定义列表，每行一个 1024x1024。界面上的格子编辑器会读写这个列表；"
+                   "也支持 16:9（按目标像素换算）与 # 注释（兼容旧工作流）",
     }),
     "megapixels": ("FLOAT", {
         "default": 1.0, "min": 0.05, "max": 8.0, "step": 0.05,
