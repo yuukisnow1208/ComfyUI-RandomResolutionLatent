@@ -90,6 +90,20 @@
   color: #fff;
 }
 
+/* 双击禁用的格子：保留在列表里但不参与调度 */
+.rrl-tile-off {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.rrl-tile-off .rrl-tile-text {
+  text-decoration: line-through;
+}
+
+.rrl-tile-off button:hover {
+  background: #6f9bff; /* 禁用格子上的 × 用蓝色，和「删除」区分开 */
+}
+
 .rrl-empty {
   font-size: 12px;
   opacity: 0.55;
@@ -142,4 +156,9 @@
 .rrl-hint {
   font-size: 11px;
   opacity: 0.5;
+}
+
+/* 尺寸格子可双击禁用，给个手型提示 */
+.rrl-wrap-sizes .rrl-tile {
+  cursor: pointer;
 }

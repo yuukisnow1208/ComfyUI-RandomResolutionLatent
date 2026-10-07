@@ -1,12 +1,19 @@
 // ComfyUI-RandomResolutionLatent · 前端扩展
 //
-// 做三件事（坑都是 TagPromptEditor 项目里踩平的，注释保留关键的）：
+// 做四件事（坑都是 TagPromptEditor 项目里踩平的，注释保留关键的）：
 //  1. 给所有 widget 挂中文 label（canvas 绘制用 w.label ?? w.name，Python 侧不动名字）
-//  2. 隐藏 seed / control_after_generate（官方 hidden 机制，序列化不受影响，
-//     旧工作流 widgets_values 位置数组一个位都不动）
-//  3. 自定义分辨率改成「格子模式」：原生 STRING 退居幕后当唯一真相源（隐藏但仍
-//     序列化），DOM 格子编辑器负责看和改。底层存储仍是每行一个 1024x1024，
-//     旧工作流 / API 格式完全兼容。
+//  2. 隐藏 seed / control_after_generate / start_index（官方 hidden 机制，序列化不受
+//     影响，旧工作流 widgets_values 位置数组一个位都不动）
+//  3. 自定义分辨率格子编辑器：每个分辨率一个格子，双击禁用/恢复（不删除，
+//     以行首 ! 前缀持久化到底层文本，后端解析时跳过）
+//  4. 宽高比列表也做成格子（添加 / 删除）
+//
+// 两个编辑器都由 createTilesEditor 工厂创建，共用同一条渲染/提交路径；
+// 底层存储保持原文本格式（每行一个 1024x1024 / 逗号分隔比例），旧工作流 / API 完全兼容。
+//
+// ⚠️ DOM widget 必须留在 widgets 末尾：实测（前端 1.53）加载工作流时按位置给
+// **每个** widget 无条件喂 widgets_values，serialize:false 也照样消耗一个值——
+// 插在中间会让后面所有 widget 串位。放在末尾吃掉的是不存在的第 N+1 个值，无害。
 
 import { app } from "../../../scripts/app.js";
 
@@ -23,7 +30,6 @@ const LABELS = {
   aspect_ratios: "宽高比列表",
   multiple_of: "对齐倍数",
   pick_mode: "挑选模式",
-  start_index: "起始序号",
   batch_size: "单次张数 (batch)",
   latent_format: "Latent 通道",
   seed: "随机种子",
@@ -76,6 +82,7 @@ function hideWidget(widget) {
 // 尺寸解析（与后端 resolution_pool.py 的规则对齐）
 // ---------------------------------------------------------------------------
 const TOKEN_RE = /(\d{1,5})\s*([x×X*,，]|[:：])\s*(\d{1,5})/g;
+const ASPECT_SPLIT_RE = /[\s,，;；|]+/;
 const MIN_SIDE = 64;
 const MAX_SIDE = 8192;
 const STEP = 8;
@@ -95,43 +102,79 @@ function megapixelsOf(node) {
   return Number.isFinite(v) && v > 0 ? v : 1.0;
 }
 
-/** 文本 -> [{w,h}]。支持 1024x1024 / 1024*1024 / 1024,1024 / 16:9（按目标像素换算），# 注释。 */
+/** 文本 -> [{w,h,disabled}]。每行一个；行首 ! = 禁用；支持 1024x1024 / 16:9（按目标像素换算），# 注释。 */
 function parseSizes(text, mp) {
   const out = [];
   const seen = new Set();
-  const clean = String(text || "")
-    .split("\n")
-    .map((l) => l.split("#")[0])
-    .join("\n");
-  TOKEN_RE.lastIndex = 0;
-  let m;
-  while ((m = TOKEN_RE.exec(clean))) {
-    const a = parseInt(m[1], 10);
-    const b = parseInt(m[3], 10);
-    let size;
-    if (m[2] === ":" || m[2] === "：") {
-      // 比例 -> 按目标像素换算（与后端 size_from_aspect 一致）
-      const ratio = Math.max(1e-6, a / Math.max(1, b));
-      const total = Math.max(0.01, mp) * 1_000_000;
-      size = normalizeSize(Math.sqrt(total * ratio), Math.sqrt(total / ratio));
-    } else {
-      size = normalizeSize(a, b);
-    }
-    const key = `${size.w}x${size.h}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(size);
+  for (let line of String(text || "").split("\n")) {
+    line = line.split("#")[0].trim();
+    if (!line) continue;
+    const disabled = line.startsWith("!");
+    if (disabled) line = line.slice(1).trim();
+    if (!line) continue;
+    TOKEN_RE.lastIndex = 0;
+    let m;
+    while ((m = TOKEN_RE.exec(line))) {
+      const a = parseInt(m[1], 10);
+      const b = parseInt(m[3], 10);
+      let size;
+      if (m[2] === ":" || m[2] === "：") {
+        // 比例 -> 按目标像素换算（与后端 size_from_aspect 一致）
+        const ratio = Math.max(1e-6, a / Math.max(1, b));
+        const total = Math.max(0.01, mp) * 1_000_000;
+        size = normalizeSize(Math.sqrt(total * ratio), Math.sqrt(total / ratio));
+      } else {
+        size = normalizeSize(a, b);
+      }
+      const key = `${size.w}x${size.h}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ w: size.w, h: size.h, disabled });
+      }
     }
   }
   return out;
 }
 
 function tilesToText(tiles) {
-  return tiles.map((t) => `${t.w}x${t.h}`).join("\n");
+  return tiles.map((t) => `${t.disabled ? "!" : ""}${t.w}x${t.h}`).join("\n");
+}
+
+/** 宽高比文本 -> [{label,key}]。支持 16:9 / 16/9 / 1.85，与后端 parse_aspects 对齐。 */
+function parseAspects(text) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of String(text || "").split(ASPECT_SPLIT_RE)) {
+    if (!raw) continue;
+    let label = null;
+    let key = null;
+    const m = raw.match(/^(\d+(?:\.\d+)?)\s*[:：/]\s*(\d+(?:\.\d+)?)$/);
+    if (m) {
+      const aw = parseFloat(m[1]);
+      const ah = parseFloat(m[2]);
+      if (!(aw > 0) || !(ah > 0)) continue;
+      label = `${m[1]}:${m[2]}`;
+      key = (aw / ah).toFixed(4);
+    } else {
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      label = String(v);
+      key = v.toFixed(4);
+    }
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ label, key, disabled: false });
+    }
+  }
+  return out;
+}
+
+function aspectsToText(tiles) {
+  return tiles.map((t) => t.label).join(", ");
 }
 
 // ---------------------------------------------------------------------------
-// 格子渲染 / 高度 / 提交 —— 全部状态变化只走这一条路径
+// 格子渲染 / 高度 / 提交 —— 每个编辑器的状态变化只走这一条路径
 // （「同一份状态被两处渲染必须走同一条更新路径」，别再拆成两份实现）
 // ---------------------------------------------------------------------------
 
@@ -142,16 +185,16 @@ function renderTiles(st) {
   if (!st.tiles.length) {
     const empty = document.createElement("span");
     empty.className = "rrl-empty";
-    empty.textContent = "还没有分辨率 —— 在下面输入宽高后点「添加」";
+    empty.textContent = st.cfg.emptyText;
     grid.appendChild(empty);
   }
   st.tiles.forEach((t, i) => {
     const tile = document.createElement("span");
-    tile.className = "rrl-tile";
-    tile.title = `${t.w}×${t.h} · ${((t.w * t.h) / 1e6).toFixed(2)}MP`;
+    tile.className = "rrl-tile" + (t.disabled ? " rrl-tile-off" : "");
+    tile.title = st.cfg.tileTitle(t);
     const label = document.createElement("span");
     label.className = "rrl-tile-text";
-    label.textContent = `${t.w}×${t.h}`;
+    label.textContent = st.cfg.tileLabel(t);
     const del = document.createElement("button");
     del.type = "button";
     del.textContent = "×";
@@ -161,6 +204,13 @@ function renderTiles(st) {
       commitTiles(st);
     });
     tile.append(label, del);
+    if (st.cfg.canDisable) {
+      // 双击 = 禁用 / 恢复（不删除；后端以行首 ! 识别并跳过禁用项）
+      tile.addEventListener("dblclick", () => {
+        t.disabled = !t.disabled;
+        commitTiles(st);
+      });
+    }
     grid.appendChild(tile);
   });
 }
@@ -179,7 +229,7 @@ function syncTilesHeight(st) {
 }
 
 function commitTiles(st) {
-  const value = tilesToText(st.tiles);
+  const value = st.cfg.toText(st.tiles);
   const graph = st.node.graph;
   graph?.beforeChange?.();
   st.syncing = true;
@@ -199,65 +249,55 @@ function commitTiles(st) {
 
 /** 从 native 文本重解析（加载旧工作流 / 撤销后调用）。只在值真的变了时动 UI。 */
 function pullFromNative(st) {
-  if (st.native.value === st.lastSynced) return;
-  st.tiles = parseSizes(st.native.value, megapixelsOf(st.node));
+  if (!st || st.native.value === st.lastSynced) return;
+  st.tiles = st.cfg.parse(st.native.value, st.node);
   st.lastSynced = st.native.value;
   renderTiles(st);
   syncTilesHeight(st);
 }
 
 // ---------------------------------------------------------------------------
-// 格子编辑器装配
+// 格子编辑器工厂：自定义分辨率 / 宽高比列表共用
 // ---------------------------------------------------------------------------
-function setupTiles(node) {
-  if (node.__rrl) return;
-  const native = node.widgets?.find((w) => w.name === "custom_resolutions");
-  if (!native) return;
+function createTilesEditor(node, cfg) {
+  const native = node.widgets?.find((w) => w.name === cfg.nativeName);
+  if (!native) return null;
 
   const st = {
     node,
     native,
+    cfg,
     tiles: [],
     syncing: false,
     lastSynced: null,
-    height: 132,       // DOM widget 当前高度（量出来后增量修正）
+    height: 120,       // DOM widget 当前高度（量出来后增量修正）
     inner: null,
     gridEl: null,
     countEl: null,
-    wInput: null,
-    hInput: null,
     observer: null,
   };
-  node.__rrl = st;
 
   // ---- DOM 结构 ----
   const wrap = document.createElement("div");
-  wrap.className = "rrl-wrap";
+  wrap.className = `rrl-wrap ${cfg.wrapClass}`;
   const inner = document.createElement("div");
   inner.className = "rrl-inner";
   inner.innerHTML = `
     <div class="rrl-head">
-      <span class="rrl-title">自定义分辨率</span>
+      <span class="rrl-title">${cfg.title}</span>
       <span class="rrl-count"></span>
       <button class="rrl-clear" type="button" title="移除全部格子">清空</button>
     </div>
     <div class="rrl-grid"></div>
-    <div class="rrl-addrow">
-      <input class="rrl-in rrl-w" type="text" spellcheck="false" placeholder="宽 / 可粘贴列表" />
-      <span class="rrl-sep">×</span>
-      <input class="rrl-in rrl-h" type="text" spellcheck="false" placeholder="高" />
-      <button class="rrl-add" type="button">添加</button>
-    </div>
-    <div class="rrl-hint">支持粘贴 1024x1024, 1152x896… 或宽框里写比例 16:9（按目标像素换算）；自动对齐到 8</div>`;
+    ${cfg.addRowHTML}
+    <div class="rrl-hint">${cfg.hint}</div>`;
   wrap.appendChild(inner);
 
   st.inner = inner;
   st.gridEl = inner.querySelector(".rrl-grid");
   st.countEl = inner.querySelector(".rrl-count");
-  st.wInput = inner.querySelector(".rrl-w");
-  st.hInput = inner.querySelector(".rrl-h");
 
-  const domWidget = node.addDOMWidget("rrl_tiles", "自定义分辨率", wrap, {
+  const domWidget = node.addDOMWidget(cfg.domName, cfg.title, wrap, {
     serialize: false,
     hideOnZoom: false,
     getMinHeight: () => st.height,
@@ -271,47 +311,17 @@ function setupTiles(node) {
   }
   wrap.addEventListener("contextmenu", (e) => e.stopPropagation());
 
-  // ⚠️ DOM widget 必须留在 widgets 末尾，不能挪到 custom_resolutions 原位置：
-  // 实测（前端 1.53）加载工作流时按位置给**每个** widget 无条件喂 widgets_values，
-  // serialize:false 也照样消耗一个值——插在中间会让后面所有 widget 串位。
-  // 放在末尾吃掉的是不存在的第 N+1 个值，无害（TagPromptEditor 同款做法）。
-
   // 原生文本框退居幕后：隐藏但仍序列化（唯一真相源）
   hideWidget(native);
 
   // ---- 添加 / 清空 ----
   function addFromInputs() {
-    const wRaw = (st.wInput.value || "").trim();
-    const hRaw = (st.hInput.value || "").trim();
-    if (!wRaw && !hRaw) return;
-    let incoming;
-    if (/[x×X*,，:：]/.test(wRaw)) {
-      // 宽输入框里粘了一段列表（或写了 16:9）-> 整段解析
-      incoming = parseSizes(wRaw, megapixelsOf(node));
-    } else {
-      const w = parseInt(wRaw, 10);
-      const h = parseInt(hRaw, 10);
-      if (!w || !h) return;
-      incoming = [normalizeSize(w, h)];
-    }
-    if (!incoming.length) return;
-    const seen = new Set(st.tiles.map((t) => `${t.w}x${t.h}`));
-    let added = 0;
-    for (const s of incoming) {
-      const key = `${s.w}x${s.h}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      st.tiles.push(s);
-      added++;
-    }
-    st.wInput.value = "";
-    st.hInput.value = "";
-    if (added) commitTiles(st);
+    const added = cfg.onAdd(st);
+    if (added > 0) commitTiles(st);
   }
-
   inner.querySelector(".rrl-add").addEventListener("click", addFromInputs);
-  for (const el of [st.wInput, st.hInput]) {
-    el.addEventListener("keydown", (e) => {
+  for (const input of inner.querySelectorAll(".rrl-addrow input")) {
+    input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
@@ -338,29 +348,128 @@ function setupTiles(node) {
   st.observer.observe(st.gridEl);
 
   // ---- 初始 ----
-  st.tiles = parseSizes(st.native.value, megapixelsOf(node));
+  st.tiles = cfg.parse(st.native.value, node);
   st.lastSynced = st.native.value;
   renderTiles(st);
   syncTilesHeight(st);
-  // 宽度兜住（高度由 syncTilesHeight 增量修正，不动这里）
-  node.setSize([Math.max(node.size[0], 430), node.size[1]]);
 
+  return st;
   // 旧工作流加载时 widgets_values 在 onConfigure 之后才到位，onConfigure 里会再补一次
 }
 
+// 两个编辑器的配置
+const SIZES_CFG = {
+  nativeName: "custom_resolutions",
+  domName: "rrl_tiles",
+  title: "自定义分辨率",
+  wrapClass: "rrl-wrap-sizes",
+  canDisable: true,
+  emptyText: "还没有分辨率 —— 在下面输入宽高后点「添加」",
+  addRowHTML: `
+    <div class="rrl-addrow">
+      <input class="rrl-in rrl-w" type="text" spellcheck="false" placeholder="宽 / 可粘贴列表" />
+      <span class="rrl-sep">×</span>
+      <input class="rrl-in rrl-h" type="text" spellcheck="false" placeholder="高" />
+      <button class="rrl-add" type="button">添加</button>
+    </div>`,
+  hint: "支持粘贴 1024x1024, 1152x896… 或宽框里写比例 16:9（按目标像素换算）；自动对齐到 8；双击格子 = 禁用 / 恢复",
+  parse: (text, node) => parseSizes(text, megapixelsOf(node)),
+  toText: tilesToText,
+  onAdd(st) {
+    const node = st.node;
+    const wInput = st.inner.querySelector(".rrl-w");
+    const hInput = st.inner.querySelector(".rrl-h");
+    const wRaw = (wInput.value || "").trim();
+    const hRaw = (hInput.value || "").trim();
+    if (!wRaw && !hRaw) return 0;
+    let incoming;
+    if (/[x×X*,，:：]/.test(wRaw)) {
+      // 宽输入框里粘了一段列表（或写了 16:9）-> 整段解析
+      incoming = parseSizes(wRaw, megapixelsOf(node));
+    } else {
+      const w = parseInt(wRaw, 10);
+      const h = parseInt(hRaw, 10);
+      if (!w || !h) return 0;
+      incoming = [{ ...normalizeSize(w, h), disabled: false }];
+    }
+    if (!incoming.length) return 0;
+    const seen = new Set(st.tiles.map((t) => `${t.w}x${t.h}`));
+    let added = 0;
+    for (const s of incoming) {
+      const key = `${s.w}x${s.h}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      st.tiles.push(s);
+      added++;
+    }
+    wInput.value = "";
+    hInput.value = "";
+    return added;
+  },
+  tileLabel: (t) => `${t.w}×${t.h}`,
+  tileTitle: (t) =>
+    t.disabled
+      ? `已禁用 · 不参与调度（双击恢复）`
+      : `${t.w}×${t.h} · ${((t.w * t.h) / 1e6).toFixed(2)}MP · 双击禁用`,
+};
+
+const ASPECTS_CFG = {
+  nativeName: "aspect_ratios",
+  domName: "rrl_aspects",
+  title: "宽高比列表",
+  wrapClass: "rrl-wrap-aspects",
+  canDisable: false,
+  emptyText: "还没有比例 —— 在下面输入后点「添加」（列表为空时按默认值兜底）",
+  addRowHTML: `
+    <div class="rrl-addrow">
+      <input class="rrl-in rrl-a" type="text" spellcheck="false" placeholder="比例，如 3:2 / 1.85 / 可粘贴多个" />
+      <button class="rrl-add" type="button">添加</button>
+    </div>`,
+  hint: "写 3:2 这种比例或 1.85 这种数值都行；支持一次粘贴 1:1, 4:3, 16:9；仅「按目标像素生成」来源使用此列表",
+  parse: (text) => parseAspects(text),
+  toText: aspectsToText,
+  onAdd(st) {
+    const input = st.inner.querySelector(".rrl-a");
+    const incoming = parseAspects(input.value || "");
+    if (!incoming.length) return 0;
+    const seen = new Set(st.tiles.map((t) => t.key));
+    let added = 0;
+    for (const a of incoming) {
+      if (seen.has(a.key)) continue;
+      seen.add(a.key);
+      st.tiles.push(a);
+      added++;
+    }
+    input.value = "";
+    return added;
+  },
+  tileLabel: (t) => t.label,
+  tileTitle: (t) => `${t.label} · 按「目标像素 (MP)」换算成具体尺寸`,
+};
+
 // ---------------------------------------------------------------------------
-// 节点初始化：中文 label + 隐藏 seed + 格子编辑器
+// 节点初始化：中文 label + 隐藏 seed / start_index + 两个格子编辑器
 // ---------------------------------------------------------------------------
 function setupNode(node) {
+  if (node.__rrlEditors) return;
   // 1. 中文 label
   for (const w of node.widgets || []) {
     if (LABELS[w.name]) w.label = LABELS[w.name];
   }
-  // 2. seed 对用户没有意义：隐藏（序列化保留，旧工作流不串位）
+  // 2. 对用户没意义的参数：隐藏（序列化保留原位，旧工作流不串位）
+  //    start_index 功能已移除，但它在 INPUT_TYPES 中间，删掉会让旧工作流串位，
+  //    所以保留占位、前端隐藏、后端忽略。
   hideWidget(node.widgets?.find((w) => w.name === "seed"));
   hideWidget(node.widgets?.find((w) => w.name === "control_after_generate"));
-  // 3. 格子编辑器
-  setupTiles(node);
+  hideWidget(node.widgets?.find((w) => w.name === "start_index"));
+  // 3. 两个格子编辑器（都追加在 widgets 末尾，见文件头说明）
+  const editors = [
+    createTilesEditor(node, SIZES_CFG),
+    createTilesEditor(node, ASPECTS_CFG),
+  ].filter(Boolean);
+  node.__rrlEditors = editors;
+  // 宽度兜住（高度由 syncTilesHeight 增量修正，不动这里）
+  node.setSize([Math.max(node.size[0], 430), node.size[1]]);
 }
 
 app.registerExtension({
@@ -385,17 +494,14 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const ret = onConfigure?.apply(this, arguments);
       const node = this;
-      setTimeout(() => pullFromNative(node.__rrl), 0);
+      setTimeout(() => (node.__rrlEditors || []).forEach(pullFromNative), 0);
       return ret;
     };
 
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
-      const st = this.__rrl;
-      if (st) {
-        st.observer?.disconnect();
-        this.__rrl = null;
-      }
+      for (const st of this.__rrlEditors || []) st.observer?.disconnect();
+      this.__rrlEditors = null;
       return onRemoved?.apply(this, arguments);
     };
   },

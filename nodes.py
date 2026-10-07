@@ -101,7 +101,7 @@ class ResolutionScheduler:
                 }),
                 "start_index": ("INT", {
                     "default": 0, "min": 0, "max": 4095, "step": 1,
-                    "tooltip": "从池里的第几个开始（0 开始计数）。想接着上次的位置继续时用",
+                    "tooltip": "（已废弃）此参数不再使用，仅为兼容旧工作流保留，界面已隐藏",
                 }),
                 "batch_size": ("INT", {
                     "default": 1, "min": 1, "max": 64, "step": 1,
@@ -165,10 +165,10 @@ class ResolutionScheduler:
         aspect_ratios: str,
         multiple_of: int,
         pick_mode: str,
-        start_index: int,
-        batch_size: int,
-        latent_format: str,
-        seed: int,
+        start_index: int = 0,  # 已废弃：仅为兼容旧工作流保留，不再参与调度
+        batch_size: int = 1,
+        latent_format: str = "",
+        seed: int = 0,
         advance_each_run: bool = True,
         unique_id: Any = None,
     ):
@@ -185,7 +185,7 @@ class ResolutionScheduler:
         signature = (
             pool_source, preset_group, (custom_resolutions or "").strip(),
             round(float(megapixels), 4), (aspect_ratios or "").strip(),
-            int(multiple_of), pick_mode, int(start_index), latent_format,
+            int(multiple_of), pick_mode, latent_format,
         )
         key = str(unique_id) if unique_id is not None else "resolution_scheduler::global"
 
@@ -194,7 +194,6 @@ class ResolutionScheduler:
             signature=signature,
             pick_mode=pick_mode,
             sizes=sizes,
-            start_index=start_index,
             seed=seed,
         )
 

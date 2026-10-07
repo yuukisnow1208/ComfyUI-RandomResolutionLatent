@@ -10,7 +10,7 @@
    （顺序循环 / 随机 / 洗牌不重复）。
 
 计数器按节点 ``unique_id`` 隔离；当关键参数发生变化（换预设、改列表、
-改模式、改起始序号）时自动归零重排。
+改模式）时自动归零重排。
 """
 
 from __future__ import annotations
@@ -180,32 +180,59 @@ def parse_custom_list(
     megapixels: float = 1.0,
     multiple_of: int = 64,
 ) -> Tuple[List[Tuple[int, int]], List[str]]:
-    """解析自定义分辨率列表，返回 (尺寸列表, 提示信息)。"""
+    """解析自定义分辨率列表，返回 (可用尺寸列表, 提示信息)。
+
+    行首以 ``!`` 开头表示该条目被「禁用」（界面上双击格子切换）：
+    禁用的条目保留在列表里但不进入分辨率池。
+    """
     sizes: List[Tuple[int, int]] = []
     notes: List[str] = []
+    disabled: List[Tuple[int, int]] = []
     text = (text or "").strip()
     if not text:
         return sizes, ["自定义列表为空"]
 
-    cleaned = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+    # 逐行预处理：去注释、识别行首 ! 禁用标记
+    entries: List[Tuple[Tuple[int, int], bool]] = []  # ((w, h), is_disabled)
+    cleaned_lines: List[Tuple[str, bool]] = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        is_disabled = line.startswith("!")
+        if is_disabled:
+            line = line[1:].strip()
+            if not line:
+                continue
+        cleaned_lines.append((line, is_disabled))
 
-    for match in _TOKEN_RE.finditer(cleaned):
-        first, sep, second = int(match.group(1)), match.group(2), int(match.group(3))
-        if sep in ":：":
-            size = size_from_aspect(first, second, megapixels, multiple_of)
-            size = _normalize_size(size[0], size[1], notes, match.group(0))
-        else:
-            size = _normalize_size(first, second, notes, match.group(0))
-        if size and size not in sizes:
-            sizes.append(size)
+    for line, is_disabled in cleaned_lines:
+        for match in _TOKEN_RE.finditer(line):
+            first, sep, second = int(match.group(1)), match.group(2), int(match.group(3))
+            if sep in ":：":
+                size = size_from_aspect(first, second, megapixels, multiple_of)
+                size = _normalize_size(size[0], size[1], notes, match.group(0))
+            else:
+                size = _normalize_size(first, second, notes, match.group(0))
+            if size and all(existing != size for existing, _ in entries):
+                entries.append((size, is_disabled))
 
+    cleaned = "\n".join(line for line, _ in cleaned_lines)
     leftover = _SPLIT_RE.split(_TOKEN_RE.sub(" ", cleaned))
     leftovers = [t for t in leftover if t]
     if leftovers:
         notes.append("已忽略无法识别的条目：" + "、".join(leftovers[:8]))
 
+    sizes = [size for size, flag in entries if not flag]
+    disabled = [size for size, flag in entries if flag]
+    if disabled:
+        notes.append(
+            "已禁用 " + str(len(disabled)) + " 项（双击格子可恢复）："
+            + "、".join(f"{w}×{h}" for w, h in disabled)
+        )
     if not sizes:
-        notes.append("自定义列表里没有解析到任何可用分辨率")
+        notes.append("自定义列表里没有可用的分辨率"
+                     + ("（条目全部被禁用）" if disabled else ""))
     return sizes, notes
 
 
@@ -361,7 +388,6 @@ def next_resolution(
     signature,
     pick_mode: str,
     sizes: Sequence[Tuple[int, int]],
-    start_index: int = 0,
     seed: int = 0,
 ) -> Tuple[int, int, int, int]:
     """取出「本次执行」的分辨率。
@@ -377,7 +403,7 @@ def next_resolution(
     size_count = len(sizes)
 
     if pick_mode == PICK_SEQUENTIAL:
-        index = (int(start_index) + count) % size_count
+        index = count % size_count
     elif pick_mode == PICK_RANDOM:
         # 用 seed + 执行次数派生随机源：结果可复现，且每次排队都不同
         rng = random.Random(
