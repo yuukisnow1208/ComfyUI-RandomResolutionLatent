@@ -289,8 +289,7 @@ function createTilesEditor(node, cfg) {
       <button class="rrl-clear" type="button" title="移除全部格子">清空</button>
     </div>
     <div class="rrl-grid"></div>
-    ${cfg.addRowHTML}
-    <div class="rrl-hint">${cfg.hint}</div>`;
+    ${cfg.addRowHTML}`;
   wrap.appendChild(inner);
 
   st.inner = inner;
@@ -376,7 +375,6 @@ const SIZES_CFG = {
       <input class="rrl-in rrl-h" type="text" spellcheck="false" placeholder="高" />
       <button class="rrl-add" type="button">添加</button>
     </div>`,
-  hint: "支持粘贴 1024x1024, 1152x896… 或宽框里写比例 16:9（按目标像素换算）；自动对齐到 8；双击格子 = 禁用 / 恢复",
   parse: (text, node) => parseSizes(text, megapixelsOf(node)),
   toText: tilesToText,
   onAdd(st) {
@@ -429,7 +427,6 @@ const ASPECTS_CFG = {
       <input class="rrl-in rrl-a" type="text" spellcheck="false" placeholder="比例，如 3:2 / 1.85 / 可粘贴多个" />
       <button class="rrl-add" type="button">添加</button>
     </div>`,
-  hint: "写 3:2 这种比例或 1.85 这种数值都行；支持一次粘贴 1:1, 4:3, 16:9；仅「按目标像素生成」来源使用此列表",
   parse: (text) => parseAspects(text),
   toText: aspectsToText,
   onAdd(st) {

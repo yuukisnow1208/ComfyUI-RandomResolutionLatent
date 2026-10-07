@@ -152,12 +152,6 @@
   color: #fff;
 }
 
-/* ---- 提示行 ---- */
-.rrl-hint {
-  font-size: 11px;
-  opacity: 0.5;
-}
-
 /* 尺寸格子可双击禁用，给个手型提示 */
 .rrl-wrap-sizes .rrl-tile {
   cursor: pointer;
