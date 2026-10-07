@@ -344,8 +344,12 @@ function createTilesEditor(node, cfg) {
   };
 
   // ---- 高度监听 ----
+  // 必须观察 inner 整个内容区，不能只观察格子区：提示小字（.rrl-hint）会随
+  // 节点宽度变化重新换行，只盯格子区时换行不会触发重测，widget 高度停留在
+  // 旧值 → 和下一个 widget 重叠。观察 inner 后，格子增删 / 小字换行 /
+  // 字体加载等任何内容高度变化都会触发重新同步。
   st.observer = new ResizeObserver(() => syncTilesHeight(st));
-  st.observer.observe(st.gridEl);
+  st.observer.observe(st.inner);
 
   // ---- 初始 ----
   st.tiles = cfg.parse(st.native.value, node);

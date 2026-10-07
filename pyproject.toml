@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-random-resolution-latent"
-version = "1.2.0"
+version = "1.2.1"
 description = "🎲 随机分辨率空白 Latent —— 每次排队执行自动切换一个合理的空 latent 分辨率，用于同一提示词批量产出多种尺寸。"
 requires-python = ">= 3.9"
 dependencies = []
